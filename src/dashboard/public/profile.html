@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile — Aevix</title>
+  <meta name="theme-color" content="#6C3AED">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .profile-banner { height: 180px; background: linear-gradient(135deg, var(--brand) 0%, #1e1b4b 50%, var(--bg-root) 100%); border-radius: var(--radius-lg) var(--radius-lg) 0 0; position: relative; overflow: hidden; }
+    .profile-banner img { width: 100%; height: 100%; object-fit: cover; }
+    .profile-main { background: var(--bg-card); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius-lg) var(--radius-lg); padding: 0 28px 28px; position: relative; }
+    .profile-avatar-wrap { margin-top: -48px; margin-bottom: 16px; }
+    .profile-avatar { width: 96px; height: 96px; border-radius: 50%; border: 4px solid var(--bg-card); }
+    .status-dot { width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--bg-card); position: absolute; bottom: 2px; right: 2px; }
+    .status-online { background: #22c55e; }
+    .status-idle { background: #f59e0b; }
+    .status-dnd { background: #ef4444; }
+    .status-offline { background: #6b7280; }
+
+    .spotify-card { background: linear-gradient(135deg, rgba(29,185,84,.08), rgba(29,185,84,.02)); border: 1px solid rgba(29,185,84,.2); }
+    .spotify-card:hover { border-color: rgba(29,185,84,.4); }
+    .spotify-header { display: flex; align-items: center; gap: 8px; color: #1DB954; font-weight: 600; font-size: .9rem; margin-bottom: 16px; }
+    .spotify-listening { display: flex; align-items: center; gap: 16px; padding: 16px; background: rgba(29,185,84,.06); border-radius: var(--radius); margin-bottom: 16px; }
+    .spotify-album-art { width: 64px; height: 64px; border-radius: var(--radius-sm); flex-shrink: 0; }
+    .spotify-song { font-weight: 600; font-size: .95rem; }
+    .spotify-artist { color: var(--text-secondary); font-size: .85rem; }
+    .spotify-album { color: var(--text-muted); font-size: .75rem; margin-top: 2px; }
+    .spotify-bar { height: 3px; background: rgba(29,185,84,.2); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+    .spotify-bar-fill { height: 100%; background: #1DB954; border-radius: 2px; transition: width 1s linear; }
+
+    .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+    .playlist-card { background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; transition: all var(--transition); cursor: pointer; text-decoration: none; color: inherit; display: block; }
+    .playlist-card:hover { border-color: rgba(29,185,84,.4); transform: translateY(-2px); }
+    .playlist-img { width: 100%; aspect-ratio: 1; background: var(--bg-elevated); object-fit: cover; }
+    .playlist-info { padding: 10px; }
+    .playlist-name { font-weight: 600; font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .playlist-meta { font-size: .7rem; color: var(--text-muted); margin-top: 2px; }
+
+    .custom-status { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--bg-input); border-radius: var(--radius-sm); font-size: .85rem; color: var(--text-secondary); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav"></nav>
+  <main class="page container" style="max-width:780px">
+    <div id="profile-loading" class="loading-page"><div class="spinner"></div></div>
+    <div id="profile-content" class="hidden"></div>
+  </main>
+  <footer class="footer"><span>◆</span> Aevix Dashboard</footer>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    const BADGE_MAP = {
+      owner:{icon:"👑",label:"Owner"},creator:{icon:"🔧",label:"Creator"},dev:{icon:"💻",label:"Developer"},
+      admin:{icon:"🛡️",label:"Admin"},staff:{icon:"⭐",label:"Staff"},supporter:{icon:"💖",label:"Supporter"},
+      sponsor:{icon:"💎",label:"Sponsor"},vip:{icon:"🏆",label:"VIP"},bug:{icon:"🐛",label:"Bug Hunter"},
+      friend:{icon:"🤝",label:"Friend"},partner:{icon:"🤝",label:"Partner"},noprefix:{icon:"⚡",label:"No Prefix"},
+    };
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      await App.init();
+      if (!App.requireAuth()) return;
+
+      try {
+        const data = await API.user.profile();
+        const u = data.user, p = data.profile, b = data.badges;
+        const sp = data.spotify, pr = data.presence;
+
+        const badgesHtml = Object.entries(b||{}).map(([k,v])=>{
+          const bg = BADGE_MAP[k]; if(!bg) return "";
+          return `<div class="badge-icon ${v?"active":"inactive"}" title="${bg.label}">${bg.icon}</div>`;
+        }).join("");
+
+        const statusClass = pr?.status ? `status-${pr.status}` : "status-offline";
+
+        /* ── Spotify Listening Now ────────────────── */
+        let listeningHtml = "";
+        if (pr?.spotify) {
+          const s = pr.spotify;
+          const progress = s.startedAt && s.endsAt ? Math.min(((Date.now()-s.startedAt)/(s.endsAt-s.startedAt))*100, 100) : 0;
+          listeningHtml = `
+            <div class="spotify-listening">
+              ${s.albumArt ? `<img src="${s.albumArt}" class="spotify-album-art" alt="">` : '<div class="spotify-album-art" style="background:var(--bg-elevated);display:flex;align-items:center;justify-content:center">🎵</div>'}
+              <div style="flex:1;min-width:0">
+                <div class="spotify-song">${s.song||"Unknown"}</div>
+                <div class="spotify-artist">by ${s.artist||"Unknown"}</div>
+                ${s.album?`<div class="spotify-album">on ${s.album}</div>`:""}
+                <div class="spotify-bar"><div class="spotify-bar-fill" style="width:${progress}%"></div></div>
+              </div>
+            </div>`;
+        }
+
+        /* ── Spotify Linked Section ──────────────── */
+        let spotifyHtml = "";
+        if (sp?.linked) {
+          const playlistsHtml = (sp.playlists||[]).map(pl => `
+            <a href="${pl.url}" target="_blank" class="playlist-card">
+              ${pl.image ? `<img src="${pl.image}" class="playlist-img" alt="">` : '<div class="playlist-img" style="display:flex;align-items:center;justify-content:center;font-size:2rem">🎵</div>'}
+              <div class="playlist-info"><div class="playlist-name">${pl.name}</div><div class="playlist-meta">${pl.tracks} tracks</div></div>
+            </a>
+          `).join("");
+
+          spotifyHtml = `
+            <div class="card spotify-card mt-16">
+              <div class="spotify-header">🎵 Spotify Connected</div>
+              ${listeningHtml}
+              <div class="flex-between mb-16">
+                <div class="flex gap-16">
+                  ${sp.avatarUrl?`<img src="${sp.avatarUrl}" style="width:48px;height:48px;border-radius:50%">`:""}
+                  <div>
+                    <div style="font-weight:600">${sp.displayName}</div>
+                    <div style="font-size:.8rem;color:var(--text-muted)">${sp.followers!==undefined?App.formatNumber(sp.followers)+" followers":"Linked "+new Date(sp.linkedAt).toLocaleDateString()}</div>
+                  </div>
+                </div>
+                <div class="flex gap-8">
+                  <a href="${sp.profileUrl}" target="_blank" class="btn btn-sm" style="background:rgba(29,185,84,.15);color:#1DB954;border:1px solid rgba(29,185,84,.3)">Open Spotify</a>
+                  <button class="btn btn-sm btn-ghost" onclick="unlinkSpotify()" style="color:var(--error)">Unlink</button>
+                </div>
+              </div>
+              ${playlistsHtml ? `<div style="font-size:.8rem;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Public Playlists</div><div class="playlist-grid">${playlistsHtml}</div>` : ""}
+            </div>`;
+        } else {
+          spotifyHtml = `
+            <div class="card mt-16" style="text-align:center;padding:28px">
+              <div style="font-size:1.5rem;margin-bottom:8px">🎵</div>
+              <div style="font-weight:600;margin-bottom:4px">Spotify Not Linked</div>
+              <div style="color:var(--text-muted);font-size:.85rem">Use <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px">slink</code> command in Discord to connect your Spotify profile</div>
+              ${listeningHtml ? `<div class="mt-16">${listeningHtml}</div>` : ""}
+            </div>`;
+        }
+
+        /* ── Render ──────────────────────────────── */
+        document.getElementById("profile-content").innerHTML = `
+          <div class="profile-banner">${u.banner?`<img src="${u.banner}" alt="">`:"" }</div>
+          <div class="profile-main">
+            <div class="profile-avatar-wrap" style="position:relative;display:inline-block">
+              <img src="${u.avatarUrl}" class="profile-avatar" alt="">
+              <div class="status-dot ${statusClass}"></div>
+            </div>
+            <div class="flex-between flex-wrap">
+              <div>
+                <div class="profile-name">${u.globalName||u.username}</div>
+                <div class="profile-id">@${u.username} · ${u.id}</div>
+                ${pr?.customStatus?`<div class="custom-status">💬 ${pr.customStatus}</div>`:""}
+              </div>
+              <div class="flex gap-8"><span class="tag tag-brand">Commands: ${data.commandCount}</span></div>
+            </div>
+            <div class="badges-grid mt-16">${badgesHtml||'<span style="color:var(--text-muted);font-size:.8rem">No badges yet</span>'}</div>
+          </div>
+
+          ${spotifyHtml}
+
+          <div class="card mt-16">
+            <div class="card-header"><span class="card-title">Bio</span></div>
+            <div class="form-group"><textarea class="form-textarea" id="bio" maxlength="200" rows="3">${p.bio||""}</textarea><div class="form-hint"><span id="bio-count">${(p.bio||"").length}</span>/200</div></div>
+          </div>
+
+          <div class="card mt-16">
+            <div class="card-header"><span class="card-title">Social Links</span></div>
+            <div class="form-group"><label class="form-label">Twitter</label><div class="form-row"><input type="text" class="form-input" id="tw-user" value="${p.social?.twitter?.username||""}" placeholder="Username"><input type="text" class="form-input" id="tw-link" value="${p.social?.twitter?.link||""}" placeholder="https://twitter.com/..."></div></div>
+            <div class="form-group"><label class="form-label">Instagram</label><div class="form-row"><input type="text" class="form-input" id="ig-user" value="${p.social?.instagram?.username||""}" placeholder="Username"><input type="text" class="form-input" id="ig-link" value="${p.social?.instagram?.link||""}" placeholder="https://instagram.com/..."></div></div>
+            <div class="form-group"><label class="form-label">Discord</label><div class="form-row"><input type="text" class="form-input" id="dc-user" value="${p.social?.discord?.username||""}" placeholder="Username"><input type="text" class="form-input" id="dc-link" value="${p.social?.discord?.link||""}" placeholder="https://discord.gg/..."></div></div>
+          </div>
+
+          <button class="btn btn-brand mt-16" onclick="saveProfile()">Save Profile</button>
+        `;
+
+        document.getElementById("profile-loading").classList.add("hidden");
+        document.getElementById("profile-content").classList.remove("hidden");
+
+        document.getElementById("bio")?.addEventListener("input", e => {
+          document.getElementById("bio-count").textContent = e.target.value.length;
+        });
+
+        /* Auto-update Spotify progress bar */
+        if (pr?.spotify?.startedAt && pr?.spotify?.endsAt) {
+          setInterval(() => {
+            const bar = document.querySelector(".spotify-bar-fill");
+            if (!bar) return;
+            const pct = Math.min(((Date.now()-pr.spotify.startedAt)/(pr.spotify.endsAt-pr.spotify.startedAt))*100, 100);
+            bar.style.width = pct + "%";
+          }, 1000);
+        }
+
+      } catch (err) {
+        document.getElementById("profile-loading").innerHTML = `<div style="text-align:center;color:var(--error)">${err.message}</div>`;
+      }
+    });
+
+    async function saveProfile() {
+      try {
+        await API.user.updateProfile({
+          bio: document.getElementById("bio").value,
+          social: {
+            twitter: { username: document.getElementById("tw-user").value, link: document.getElementById("tw-link").value },
+            instagram: { username: document.getElementById("ig-user").value, link: document.getElementById("ig-link").value },
+            discord: { username: document.getElementById("dc-user").value, link: document.getElementById("dc-link").value },
+          }
+        });
+        App.toast("Profile saved", "success");
+      } catch (e) { App.toast(e.message, "error"); }
+    }
+
+    async function unlinkSpotify() {
+      if (!confirm("Unlink your Spotify account?")) return;
+      try {
+        await API.del("/api/user/spotify");
+        App.toast("Spotify unlinked", "success");
+        setTimeout(() => location.reload(), 1000);
+      } catch (e) { App.toast(e.message, "error"); }
+    }
+  </script>
+</body>
+</html>

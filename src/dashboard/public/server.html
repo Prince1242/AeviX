@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Config — Aevix</title>
+  <meta name="theme-color" content="#6C3AED">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav"></nav>
+  <main class="page container">
+    <div id="server-loading" class="loading-page"><div class="spinner"></div></div>
+    <div id="server-content" class="hidden">
+      <div class="page-header flex-between flex-wrap gap-16">
+        <div class="flex gap-16">
+          <div class="guild-icon" id="srv-icon" style="width:52px;height:52px;font-size:1.3rem;border-radius:var(--radius)"></div>
+          <div><h1 id="srv-name">Server</h1><p id="srv-sub" class="guild-id"></p></div>
+        </div>
+        <div class="flex gap-8">
+          <a href="/dashboard" class="btn btn-ghost btn-sm">← Servers</a>
+        </div>
+      </div>
+      <div class="config-layout">
+        <nav class="config-nav" id="config-nav"></nav>
+        <div id="config-panels"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Unsaved changes snackbar -->
+  <div class="snackbar" id="snackbar">
+    <span>◆ You have unsaved changes</span>
+    <button class="btn btn-brand btn-sm btn-save" id="snackbar-save">Save Changes</button>
+    <button class="btn btn-ghost btn-sm" onclick="discardChanges()">Discard</button>
+  </div>
+
+  <footer class="footer"><span>◆</span> Aevix Dashboard</footer>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/ambient.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    const GID = window.location.pathname.split("/").pop();
+    let guild = null, config = null, socket = null, musicState = null;
+    let currentSection = "overview";
+    let unsaved = new Set();
+
+    /* ── Sections ────────────────────────────────── */
+    const SECTIONS = [
+      { id:"overview",  icon:"📊", label:"Overview" },
+      { id:"prefix",    icon:"⌨️",  label:"Prefix" },
+      { id:"welcome",   icon:"👋", label:"Welcome" },
+      { id:"antinuke",  icon:"🛡️",  label:"Antinuke" },
+      { id:"automod",   icon:"🔒", label:"AutoMod" },
+      { id:"autorole",  icon:"👤", label:"AutoRole" },
+      { id:"autoresponder", icon:"💬", label:"Responses" },
+      { id:"autoreact", icon:"😀", label:"AutoReact" },
+      { id:"music",     icon:"🎵", label:"Music" },
+    ];
+
+    const AN_MODULES = ["antiBan","antiKick","antiUnban","antiRole","antiChannel","antiWebhook","antiEmoji","antiSticker","antiEveryone","antiGuildUpdate","antiBotAdd","antiMemberUpdate","antiAutomodRule"];
+
+    const AN_LABELS = {
+      antiBan:"Ban",antiKick:"Kick",antiUnban:"Unban",antiRole:"Role",antiChannel:"Channel",
+      antiWebhook:"Webhook",antiEmoji:"Emoji",antiSticker:"Sticker",antiEveryone:"Everyone Ping",
+      antiGuildUpdate:"Server Update",antiBotAdd:"Bot Add",antiMemberUpdate:"Member Update",antiAutomodRule:"AutoMod Rule"
+    };
+
+    /* ── Helpers ──────────────────────────────────── */
+    function switchSection(id) {
+      currentSection = id;
+      document.querySelectorAll(".config-section").forEach(s => s.classList.remove("active"));
+      document.querySelectorAll(".config-nav-item").forEach(s => s.classList.remove("active"));
+      const panel = document.getElementById(`sec-${id}`);
+      if (panel) { panel.classList.add("active"); panel.style.animation = "none"; panel.offsetHeight; panel.style.animation = ""; }
+      document.querySelector(`[data-sec="${id}"]`)?.classList.add("active");
+    }
+
+    function chOpts(channels, sel) {
+      return `<option value="">— Select Channel —</option>` + (channels||[]).map(c => `<option value="${c.id}" ${c.id===sel?"selected":""}>#${c.name}</option>`).join("");
+    }
+
+    function markChanged(section) {
+      unsaved.add(section);
+      document.getElementById("snackbar")?.classList.add("visible");
+      document.getElementById("snackbar-save").onclick = () => saveCurrent();
+    }
+
+    function discardChanges() {
+      unsaved.clear();
+      document.getElementById("snackbar")?.classList.remove("visible");
+      /* Rebuild current panel to reset values */
+      const panel = document.getElementById(`sec-${currentSection}`);
+      if (panel && builders[currentSection]) { panel.innerHTML = builders[currentSection](); bindListeners(currentSection); }
+    }
+
+    async function saveCurrent() {
+      const savers = { prefix: savePrefix, welcome: saveWelcome, antinuke: saveAntinuke, automod: saveAutomod, autorole: saveAutorole };
+      if (savers[currentSection]) await savers[currentSection]();
+      unsaved.delete(currentSection);
+      if (unsaved.size === 0) document.getElementById("snackbar")?.classList.remove("visible");
+    }
+
+    function bindListeners(sec) {
+      const panel = document.getElementById(`sec-${sec}`);
+      if (!panel) return;
+      panel.querySelectorAll("input, select, textarea").forEach(el => {
+        el.addEventListener("change", () => markChanged(sec));
+        if (el.tagName === "TEXTAREA" || el.type === "text" || el.type === "number") {
+          el.addEventListener("input", () => markChanged(sec));
+        }
+      });
+    }
+
+    function toggleCollapse(el) {
+      el.classList.toggle("open");
+      el.nextElementSibling?.classList.toggle("open");
+    }
+
+    /* ── Panel Builders ──────────────────────────── */
+    const builders = {};
+
+    builders.overview = () => {
+      const g = guild;
+      return `<div class="config-section-header"><h2>◆ Server Overview</h2><p>${g.name}</p></div>
+        <div class="grid grid-4">
+          <div class="card card-pulse stat-card"><div class="stat-value">${App.formatNumber(g.memberCount||0)}</div><div class="stat-label">Members</div></div>
+          <div class="card card-pulse stat-card"><div class="stat-value">${g.channelCount||0}</div><div class="stat-label">Channels</div></div>
+          <div class="card card-pulse stat-card"><div class="stat-value">${g.roleCount||0}</div><div class="stat-label">Roles</div></div>
+          <div class="card card-pulse stat-card"><div class="stat-value">${g.boostCount||0}</div><div class="stat-label">Boosts</div></div>
+        </div>
+        <div class="card mt-16">
+          <div class="card-body">
+            <div class="flex-between"><span>Prefix</span><code style="background:var(--bg-elevated);padding:4px 12px;border-radius:var(--radius-sm)">${g.prefix||">"}</code></div>
+            <div class="flex-between mt-8"><span>Music Player</span>${g.hasPlayer?'<span class="tag tag-success">Active</span>':'<span class="tag tag-error">Inactive</span>'}</div>
+          </div>
+        </div>
+        <div class="card mt-16"><div class="card-body"><div style="font-size:.85rem;color:var(--text-muted)">◆ Quick tip: Use the sidebar to configure modules. Changes are saved per-section.</div></div></div>`;
+    };
+
+    builders.prefix = () => `<div class="config-section-header"><h2>⌨️ Prefix</h2><p>Custom command prefix for this server</p></div>
+      <div class="card card-pulse"><div class="form-group"><label class="form-label">Command Prefix</label>
+      <div class="flex gap-8"><input type="text" class="form-input" id="inp-prefix" value="${config.prefix||">"}" maxlength="5" style="max-width:140px">
+      <button class="btn btn-brand btn-sm btn-save" onclick="savePrefix()">Save</button></div>
+      <div class="form-hint">1-5 characters · Examples: ! . > ? $</div></div></div>`;
+
+    builders.welcome = () => {
+      const w = config.welcome||{};
+      return `<div class="config-section-header"><h2>👋 Welcome System</h2><p>Greet new members automatically</p></div>
+        <div class="card card-pulse">
+          <div class="flex-between mb-16"><div><span class="card-title">Welcome Messages</span><div class="card-subtitle">Send a message when someone joins</div></div><label class="toggle"><input type="checkbox" id="w-on" ${w.enabled?"checked":""}><span class="toggle-slider"></span></label></div>
+          <div class="form-group"><label class="form-label">Channel</label><select class="form-select" id="w-ch">${chOpts(config.meta?.textChannels,w.channel)}</select></div>
+          <div class="form-group"><label class="form-label">Message Content</label><input type="text" class="form-input" id="w-content" value="${(w.content||"").replace(/"/g,"&quot;")}" placeholder="{user} welcome to {server_name}!"><div class="form-hint">Variables: {user} {user_name} {user_avatar} {server_name} {server_icon} {server_memberCount}</div></div>
+
+          <div class="collapse-header mt-16" onclick="toggleCollapse(this)"><span style="font-weight:600;font-size:.9rem">Embed Settings</span><span class="collapse-chevron">▼</span></div>
+          <div class="collapse-body"><div style="padding:16px 0">
+            <div class="form-group"><label class="form-label">Title</label><input type="text" class="form-input" id="w-title" value="${(w.embed?.title||"").replace(/"/g,"&quot;")}"></div>
+            <div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="w-desc" rows="3">${w.embed?.description||""}</textarea></div>
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">Footer</label><input type="text" class="form-input" id="w-footer" value="${(w.embed?.footer||"").replace(/"/g,"&quot;")}"></div>
+              <div class="form-group"><label class="form-label">Color</label><input type="text" class="form-input" id="w-color" value="${w.embed?.color||""}" placeholder="#6C3AED"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">Image URL</label><input type="text" class="form-input" id="w-img" value="${w.embed?.image||""}"></div>
+              <div class="form-group"><label class="form-label">Thumbnail URL</label><input type="text" class="form-input" id="w-thumb" value="${w.embed?.thumbnail||""}"></div>
+            </div>
+            <div class="form-group"><label class="form-label">Auto-delete (seconds, 0=off)</label><input type="number" class="form-input" id="w-del" value="${w.autodel||0}" min="0" max="300" style="max-width:100px"></div>
+          </div></div>
+          <button class="btn btn-brand btn-save mt-16" onclick="saveWelcome()">Save Welcome</button>
+        </div>`;
+    };
+
+    builders.antinuke = () => {
+      const an = config.antinuke||{}, mods = an.modules||{};
+      const rows = AN_MODULES.map(k => {
+        const m = mods[k]||{};
+        return `<div class="module-row"><div class="flex gap-8"><label class="toggle"><input type="checkbox" data-anm="${k}" ${m.enabled!==false?"checked":""}><span class="toggle-slider"></span></label><span class="module-name">${AN_LABELS[k]||k}</span></div>
+          <div class="module-fields"><div class="module-field"><label>Limit</label><input type="number" class="form-input" data-ant="${k}" value="${m.threshold||3}" min="1" max="20"></div>
+          <div class="module-field"><label>Time</label><input type="number" class="form-input" data-anf="${k}" value="${m.timeframe||60}" min="5" max="300"></div></div></div>`;
+      }).join("");
+
+      return `<div class="config-section-header"><h2>🛡️ Antinuke</h2><p>Protect your server from destructive actions</p></div>
+        <div class="card card-pulse">
+          <div class="flex-between mb-16"><div><span class="card-title">Protection System</span><div class="card-subtitle">Automatically detect and punish destructive actions</div></div><label class="toggle"><input type="checkbox" id="an-on" ${an.isEnabled?"checked":""}><span class="toggle-slider"></span></label></div>
+          <div class="form-row mb-16">
+            <div class="form-group"><label class="form-label">Punishment</label><select class="form-select" id="an-punish"><option value="ban" ${an.punishment==="ban"?"selected":""}>Ban</option><option value="kick" ${an.punishment==="kick"?"selected":""}>Kick</option><option value="stripRoles" ${an.punishment==="stripRoles"?"selected":""}>Strip Roles</option></select></div>
+            <div class="form-group"><label class="form-label">Log Channel</label><select class="form-select" id="an-log">${chOpts(config.meta?.textChannels,an.logChannelId)}</select></div>
+          </div>
+          <div class="collapse-header" onclick="toggleCollapse(this)"><span style="font-weight:600;font-size:.9rem">Modules (${AN_MODULES.length})</span><span class="collapse-chevron">▼</span></div>
+          <div class="collapse-body open"><div style="padding:12px 0">${rows}</div></div>
+          <button class="btn btn-brand btn-save mt-16" onclick="saveAntinuke()">Save Antinuke</button>
+        </div>`;
+    };
+
+    builders.automod = () => {
+      const am = config.automod||{};
+      return `<div class="config-section-header"><h2>🔒 AutoMod</h2><p>Automatic moderation filters</p></div>
+        <div class="card card-pulse">
+          <div class="flex-between mb-16"><div><span class="card-title">Anti-Link</span><div class="card-subtitle">Delete messages containing links</div></div><label class="toggle"><input type="checkbox" id="am-link" ${am.antilink?.isEnabled?"checked":""}><span class="toggle-slider"></span></label></div>
+          <div style="border-top:1px solid var(--border);padding-top:16px">
+            <div class="flex-between mb-16"><div><span class="card-title">Anti-Spam</span><div class="card-subtitle">Timeout users who spam messages</div></div><label class="toggle"><input type="checkbox" id="am-spam" ${am.antispam?.isEnabled?"checked":""}><span class="toggle-slider"></span></label></div>
+            <div class="form-row"><div class="form-group"><label class="form-label">Message Limit</label><input type="number" class="form-input" id="am-thresh" value="${am.antispam?.messageThreshold||5}" min="2" max="30"></div>
+            <div class="form-group"><label class="form-label">Timeframe (sec)</label><input type="number" class="form-input" id="am-time" value="${am.antispam?.timeframe||10}" min="3" max="60"></div></div>
+          </div>
+          <button class="btn btn-brand btn-save mt-16" onclick="saveAutomod()">Save AutoMod</button>
+        </div>`;
+    };
+
+    builders.autorole = () => {
+      const ar = config.autorole||{}, roles = config.meta?.roles||[];
+      const roleList = (selected, name) => roles.map(r => `<label class="flex gap-8" style="font-size:.85rem;cursor:pointer;padding:4px 0"><input type="checkbox" name="${name}" value="${r.id}" ${(selected||[]).includes(r.id)?"checked":""}> <span style="color:${r.color};font-weight:500">${r.name}</span></label>`).join("");
+      return `<div class="config-section-header"><h2>👤 AutoRole</h2><p>Assign roles to new members automatically (max 5 each)</p></div>
+        <div class="card card-pulse">
+          <div class="collapse-header" onclick="toggleCollapse(this)"><span style="font-weight:600">Human Roles</span><span class="tag tag-brand" style="margin-left:8px">${(ar.humanRoles||[]).length}/5</span><span class="collapse-chevron">▼</span></div>
+          <div class="collapse-body open"><div style="padding:8px 0;max-height:240px;overflow-y:auto">${roleList(ar.humanRoles,"hr")}</div></div>
+          <div class="collapse-header mt-16" onclick="toggleCollapse(this)"><span style="font-weight:600">Bot Roles</span><span class="tag tag-brand" style="margin-left:8px">${(ar.botRoles||[]).length}/5</span><span class="collapse-chevron">▼</span></div>
+          <div class="collapse-body"><div style="padding:8px 0;max-height:240px;overflow-y:auto">${roleList(ar.botRoles,"br")}</div></div>
+          <button class="btn btn-brand btn-save mt-16" onclick="saveAutorole()">Save AutoRole</button>
+        </div>`;
+    };
+
+    builders.autoresponder = () => {
+      const items = config.autoresponder||[];
+      const list = items.map(a => `<div class="ar-item"><span class="ar-trigger">${a.trigger}</span><span class="ar-response">${a.response}</span><button class="ar-delete" onclick="deleteAR('${a.trigger.replace(/'/g,"\\'")}')" title="Remove">✕</button></div>`).join("");
+      return `<div class="config-section-header"><h2>💬 Auto Responder</h2><p>Automatic replies to trigger words (max 25)</p></div>
+        <div class="card card-pulse"><div id="ar-list">${list||'<div style="color:var(--text-muted);font-size:.85rem;padding:8px 0">No auto responses yet. Add one below.</div>'}</div>
+        <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+          <div class="form-row"><div class="form-group"><label class="form-label">Trigger</label><input type="text" class="form-input" id="ar-t" placeholder="hello" maxlength="200"></div>
+          <div class="form-group"><label class="form-label">Response</label><input type="text" class="form-input" id="ar-r" placeholder="Hey there!" maxlength="2000"></div></div>
+          <button class="btn btn-brand btn-sm btn-save mt-8" onclick="addAR()">Add Response</button>
+        </div></div>`;
+    };
+
+    builders.autoreact = () => {
+      const items = config.autoreact||[];
+      const list = items.map(a => `<div class="ar-item"><span class="ar-trigger">${a.emoji} ${a.keyword}</span><button class="ar-delete" onclick="deleteReact('${a.keyword.replace(/'/g,"\\'")}')" title="Remove">✕</button></div>`).join("");
+      return `<div class="config-section-header"><h2>😀 AutoReact</h2><p>Automatically react to messages containing keywords</p></div>
+        <div class="card card-pulse"><div id="react-list">${list||'<div style="color:var(--text-muted);font-size:.85rem;padding:8px 0">No auto reactions yet.</div>'}</div>
+        <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+          <div class="form-row"><div class="form-group"><label class="form-label">Keyword</label><input type="text" class="form-input" id="react-kw" placeholder="nice"></div>
+          <div class="form-group"><label class="form-label">Emoji</label><input type="text" class="form-input" id="react-em" placeholder="👍" maxlength="10"></div></div>
+          <button class="btn btn-brand btn-sm btn-save mt-8" onclick="addReact()">Add Reaction</button>
+        </div></div>`;
+    };
+
+    builders.music = () => `<div class="config-section-header"><h2>🎵 Music Player</h2><p>Real-time music controls</p></div><div id="music-panel"></div>`;
+
+    /* ── Music Renderer ──────────────────────────── */
+    function renderMusic(s) {
+      const p = document.getElementById("music-panel");
+      if (!p) return;
+      if (!s?.active) {
+        p.innerHTML = `<div class="card" style="text-align:center;padding:48px"><div style="font-size:2.5rem;margin-bottom:16px">🎵</div><div style="font-weight:600;font-size:1.1rem">No Active Player</div><div style="color:var(--text-muted);margin-top:4px">Play music in Discord with <code style="background:var(--bg-elevated);padding:2px 8px;border-radius:4px">${guild?.prefix||">"}play</code></div></div>`;
+        return;
+      }
+      const c = s.current;
+      const pct = c?.length > 0 ? Math.min((s.position/c.length)*100, 100) : 0;
+      const vizBars = Array.from({length:8},()=>'<div class="player-viz-bar"></div>').join("");
+      const qHtml = s.queue.length ? s.queue.map((t,i) => `<div class="player-queue-item"><span class="player-queue-idx">${i+1}</span><span class="player-queue-title">${t.title}</span><span class="player-queue-author">${t.author}</span></div>`).join("") : '<div style="color:var(--text-muted);font-size:.85rem;padding:12px 0">Queue is empty</div>';
+
+      p.innerHTML = `<div class="player-card ${s.playing?'playing':''}">
+        ${c?`<div class="player-now-playing">
+          <div class="player-thumb">${c.thumbnail?`<img src="${c.thumbnail}" alt="">`:'<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:2.5rem">🎵</div>'}</div>
+          <div class="player-info">
+            <div class="flex-between"><div class="player-title">${c.title}</div><div class="player-visualizer">${vizBars}</div></div>
+            <div class="player-author">${c.author}</div>
+            <div class="player-progress"><div class="player-bar"><div class="player-bar-fill" style="width:${pct}%"></div></div><div class="player-times"><span>${App.formatTime(s.position)}</span><span>${App.formatTime(c.length)}</span></div></div>
+            <div class="pill-row mt-8"><span class="pill ${s.paused?'':'active'}">${s.paused?'⏸ Paused':'▶ Playing'}</span><span class="pill">${c.requester}</span>${s.autoplay?'<span class="pill active">🔄 Autoplay</span>':''}<span class="pill">🔁 ${s.loop}</span></div>
+          </div></div>`:""}
+        <div class="player-controls">
+          <button class="player-btn" onclick="mAct('shuffle')" title="Shuffle">🔀</button>
+          <button class="player-btn" onclick="mAct(musicState?.paused?'resume':'pause')">${s.paused?"▶️":"⏸️"}</button>
+          <button class="player-btn" onclick="mAct('skip')" title="Skip">⏭️</button>
+          <button class="player-btn" onclick="mAct('stop')" title="Stop" style="color:var(--error)">⏹️</button>
+          <button class="player-btn ${s.loop!=='none'?'active':''}" onclick="mAct('loop')" title="Loop">🔁</button>
+          <button class="player-btn ${s.autoplay?'active':''}" onclick="mAct('autoplay')" title="Autoplay">🔄</button>
+          <div class="volume-wrap"><span>🔊</span><input type="range" class="volume-slider" min="0" max="150" value="${s.volume||80}" onchange="mAct('volume',{volume:+this.value})" oninput="this.nextElementSibling.textContent=this.value"><span class="volume-val">${s.volume||80}</span></div>
+        </div>
+        <div class="player-queue"><div class="flex-between" style="margin-bottom:8px"><span style="font-size:.85rem;color:var(--text-secondary);font-weight:600">Queue (${s.queueSize})</span></div>${qHtml}</div>
+      </div>`;
+    }
+
+    /* ── Save Functions ──────────────────────────── */
+    async function savePrefix() {
+      try { await API.config.prefix(GID, document.getElementById("inp-prefix").value); App.toast("Prefix updated","success"); unsaved.delete("prefix"); if(!unsaved.size) document.getElementById("snackbar")?.classList.remove("visible"); } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function saveWelcome() {
+      try {
+        await API.config.welcome(GID, { enabled:document.getElementById("w-on").checked, channel:document.getElementById("w-ch").value, content:document.getElementById("w-content").value, autodel:+document.getElementById("w-del").value||0, embed:{title:document.getElementById("w-title").value,description:document.getElementById("w-desc").value,footer:document.getElementById("w-footer").value,color:document.getElementById("w-color").value,image:document.getElementById("w-img").value,thumbnail:document.getElementById("w-thumb").value}});
+        App.toast("Welcome saved","success"); unsaved.delete("welcome"); if(!unsaved.size) document.getElementById("snackbar")?.classList.remove("visible");
+      } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function saveAntinuke() {
+      try {
+        const modules = {};
+        AN_MODULES.forEach(k => { modules[k] = { enabled:document.querySelector(`[data-anm="${k}"]`)?.checked??true, threshold:+document.querySelector(`[data-ant="${k}"]`)?.value||3, timeframe:+document.querySelector(`[data-anf="${k}"]`)?.value||60 }; });
+        await API.config.antinuke(GID, { isEnabled:document.getElementById("an-on").checked, punishment:document.getElementById("an-punish").value, logChannelId:document.getElementById("an-log").value, modules });
+        App.toast("Antinuke saved","success"); unsaved.delete("antinuke"); if(!unsaved.size) document.getElementById("snackbar")?.classList.remove("visible");
+      } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function saveAutomod() {
+      try {
+        await API.config.automod(GID, { antilink:{isEnabled:document.getElementById("am-link").checked}, antispam:{isEnabled:document.getElementById("am-spam").checked, messageThreshold:+document.getElementById("am-thresh").value, timeframe:+document.getElementById("am-time").value}});
+        App.toast("AutoMod saved","success"); unsaved.delete("automod"); if(!unsaved.size) document.getElementById("snackbar")?.classList.remove("visible");
+      } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function saveAutorole() {
+      try {
+        await API.config.autorole(GID, { humanRoles:[...document.querySelectorAll('[name="hr"]:checked')].map(e=>e.value), botRoles:[...document.querySelectorAll('[name="br"]:checked')].map(e=>e.value) });
+        App.toast("AutoRole saved","success"); unsaved.delete("autorole"); if(!unsaved.size) document.getElementById("snackbar")?.classList.remove("visible");
+      } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function addAR() {
+      const t=document.getElementById("ar-t").value.trim(), r=document.getElementById("ar-r").value.trim();
+      if(!t||!r) return App.toast("Both fields required","warn");
+      try { await API.config.addAR(GID,t,r); App.toast("Added","success"); config=await API.config.get(GID); document.getElementById("sec-autoresponder").innerHTML=builders.autoresponder(); } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function deleteAR(t) {
+      try { await API.config.delAR(GID,t); App.toast("Removed","success"); config=await API.config.get(GID); document.getElementById("sec-autoresponder").innerHTML=builders.autoresponder(); } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function addReact() {
+      const kw=document.getElementById("react-kw").value.trim(), em=document.getElementById("react-em").value.trim();
+      if(!kw||!em) return App.toast("Both fields required","warn");
+      try { await API.post(`/api/config/${GID}/autoreact`,{keyword:kw,emoji:em}); App.toast("Added","success"); config=await API.config.get(GID); document.getElementById("sec-autoreact").innerHTML=builders.autoreact(); } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function deleteReact(kw) {
+      try { await API.del(`/api/config/${GID}/autoreact`,{keyword:kw}); App.toast("Removed","success"); config=await API.config.get(GID); document.getElementById("sec-autoreact").innerHTML=builders.autoreact(); } catch(e) { App.toast(e.message,"error"); }
+    }
+    async function mAct(action, data) {
+      try { if(socket) socket.emit("music:action",{guildId:GID,action,data}); else { const s=await API.music.action(GID,action,data); musicState=s; renderMusic(s); } } catch(e) { App.toast(e.message,"error"); }
+    }
+
+    /* ── Init ────────────────────────────────────── */
+    document.addEventListener("DOMContentLoaded", async () => {
+      await App.init();
+      if (!App.requireAuth()) return;
+
+      try {
+        [guild, config] = await Promise.all([API.guilds.get(GID), API.config.get(GID)]);
+
+        document.getElementById("srv-name").textContent = guild.name;
+        document.getElementById("srv-sub").textContent = `${App.formatNumber(guild.memberCount)} members · ${guild.channelCount} channels · ${guild.roleCount} roles`;
+        const iconEl = document.getElementById("srv-icon");
+        if (guild.icon) iconEl.innerHTML = `<img src="${guild.icon}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius)">`;
+        else iconEl.textContent = guild.name.charAt(0);
+
+        /* Build nav */
+        document.getElementById("config-nav").innerHTML = SECTIONS.map(s =>
+          `<button class="config-nav-item" data-sec="${s.id}" onclick="switchSection('${s.id}')">${s.icon} ${s.label}</button>`
+        ).join("");
+
+        /* Build panels */
+        document.getElementById("config-panels").innerHTML = SECTIONS.map(s =>
+          `<div class="config-section" id="sec-${s.id}">${builders[s.id]()}</div>`
+        ).join("");
+
+        /* Bind change listeners for each section */
+        SECTIONS.forEach(s => bindListeners(s.id));
+
+        document.getElementById("server-loading").classList.add("hidden");
+        document.getElementById("server-content").classList.remove("hidden");
+        switchSection("overview");
+
+        /* Socket.IO */
+        try {
+          socket = io({ withCredentials: true });
+          socket.on("connect", () => socket.emit("join:guild", GID));
+          socket.on("music:state", s => { musicState = s; renderMusic(s); });
+          socket.on("music:error", m => App.toast(m, "error"));
+        } catch {}
+
+        /* Initial music state */
+        try { musicState = await API.music.state(GID); renderMusic(musicState); } catch {}
+
+      } catch (err) {
+        document.getElementById("server-loading").innerHTML = `<div style="text-align:center"><div style="color:var(--error);font-size:1.1rem;margin-bottom:12px">${err.message}</div><a href="/dashboard" class="btn btn-brand btn-sm">Back to Servers</a></div>`;
+      }
+    });
+  </script>
+</body>
+</html>

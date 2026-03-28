@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Aevix</title>
+  <meta name="theme-color" content="#6C3AED">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav"></nav>
+  <main class="page container">
+    <div class="page-header flex-between flex-wrap">
+      <div><h1>Your Servers</h1><p>Select a server to manage</p></div>
+      <div class="search-wrap"><span class="search-icon">🔍</span><input type="text" class="form-input" id="gs" placeholder="Search..." style="min-width:200px"></div>
+    </div>
+    <div id="gw" class="hidden" style="margin-bottom:12px"></div>
+    <div id="gl" class="loading-page"><div class="spinner"></div></div>
+    <div id="gc" class="hidden">
+      <div style="color:var(--text-secondary);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;font-weight:600">Managed by Aevix</div>
+      <div class="grid grid-2" id="gm"></div>
+      <div id="gi-sec" class="mt-24">
+        <div style="color:var(--text-secondary);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;font-weight:600">Invite Aevix</div>
+        <div class="grid grid-2" id="gi"></div>
+      </div>
+    </div>
+  </main>
+  <footer class="footer"><span>◆</span> Aevix Dashboard</footer>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/ambient.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    const INV = "https://discord.com/oauth2/authorize?client_id=1477622882514370631&permissions=8&integration_type=0&scope=bot";
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      await App.init();
+      if (!App.requireAuth()) return;
+      try {
+        const d = await API.guilds.list();
+        document.getElementById("gl").classList.add("hidden");
+        document.getElementById("gc").classList.remove("hidden");
+
+        if (d.warning) {
+          const w = document.getElementById("gw");
+          w.classList.remove("hidden");
+          w.innerHTML = `<div class="card" style="padding:10px 16px;border-left:3px solid var(--warn);font-size:.8rem;color:var(--text-secondary)">⚠️ ${d.warning} <a href="/auth/login" style="margin-left:6px">Re-login</a></div>`;
+        }
+
+        const rg = (g, t) => {
+          const ic = g.icon ? `<img src="${g.icon}" alt="">` : g.name.charAt(0);
+          const bt = t==="m" ? `<a href="/dashboard/${g.id}" class="btn btn-brand btn-sm">Manage</a>` : `<a href="${INV}&guild_id=${g.id}" target="_blank" class="btn btn-secondary btn-sm">Invite</a>`;
+          return `<div class="card guild-card card-glow" data-n="${g.name.toLowerCase()}"><div class="guild-icon">${ic}</div><div class="guild-info"><div class="guild-name">${g.name}</div><div class="guild-id">${g.id}</div></div>${bt}</div>`;
+        };
+
+        document.getElementById("gm").innerHTML = d.mutual.length ? d.mutual.map(g=>rg(g,"m")).join("") : '<div class="card" style="padding:20px;color:var(--text-muted);text-align:center;grid-column:1/-1">No mutual servers. Invite Aevix to get started!</div>';
+        if (d.invitable?.length) document.getElementById("gi").innerHTML = d.invitable.map(g=>rg(g,"i")).join("");
+        else if (d.warning) document.getElementById("gi-sec").classList.add("hidden");
+
+        document.getElementById("gs").addEventListener("input", e => {
+          const q = e.target.value.toLowerCase();
+          document.querySelectorAll(".guild-card").forEach(c => { c.style.display = c.dataset.n.includes(q) ? "" : "none"; });
+        });
+      } catch (e) {
+        document.getElementById("gl").innerHTML = `<div style="text-align:center;color:var(--error)">${e.message}<br><a href="/auth/login" class="btn btn-brand btn-sm mt-16">Re-login</a></div>`;
+      }
+    });
+  </script>
+</body>
+</html>

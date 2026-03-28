@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aevix — Premium Discord Bot</title>
+  <meta name="description" content="Premium Discord bot with music, antinuke, moderation, and automation.">
+  <meta name="theme-color" content="#6C3AED">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav"></nav>
+
+  <main class="hero">
+    <div class="hero-mark">◆</div>
+    <h1>Meet <span>Aevix</span></h1>
+    <p>Premium all-in-one Discord bot — high-quality music, advanced antinuke, powerful moderation, and smart automation.</p>
+    <div class="hero-actions">
+      <a href="https://discord.com/oauth2/authorize?client_id=1477622882514370631&permissions=8&integration_type=0&scope=bot" class="btn btn-brand btn-lg" target="_blank">Add to Discord</a>
+      <a href="/dashboard" class="btn btn-secondary btn-lg">Dashboard</a>
+    </div>
+    <div class="hero-stats" id="hero-stats">
+      <div class="card stat-card"><div class="stat-value" id="s-srv">—</div><div class="stat-label">Servers</div></div>
+      <div class="card stat-card"><div class="stat-value" id="s-usr">—</div><div class="stat-label">Users</div></div>
+      <div class="card stat-card"><div class="stat-value" id="s-cmd">—</div><div class="stat-label">Commands</div></div>
+    </div>
+  </main>
+
+  <section class="features container">
+    <h2>Built for <span style="color:var(--brand)">Excellence</span></h2>
+    <div class="grid grid-3">
+      <div class="card feature-card card-glow"><div class="feature-icon">🎵</div><h3>Music</h3><p>Lag-free playback from YouTube, Spotify, SoundCloud. Filters, lyrics, autoplay.</p></div>
+      <div class="card feature-card card-glow"><div class="feature-icon">🛡️</div><h3>Antinuke</h3><p>13 protection modules with configurable thresholds and automatic punishment.</p></div>
+      <div class="card feature-card card-glow"><div class="feature-icon">⚙️</div><h3>Moderation</h3><p>Ban, kick, mute, warn, purge with auto-escalation tiers.</p></div>
+      <div class="card feature-card card-glow"><div class="feature-icon">🔄</div><h3>Automation</h3><p>Auto-responder, auto-react, auto-role, voice roles, welcome system.</p></div>
+      <div class="card feature-card card-glow"><div class="feature-icon">📊</div><h3>Dashboard</h3><p>Full web dashboard with live music controls and real-time config.</p></div>
+      <div class="card feature-card card-glow"><div class="feature-icon">💎</div><h3>Premium</h3><p>Dark, polished, professional — every output is branded and intentional.</p></div>
+    </div>
+  </section>
+
+  <footer class="footer"><span>◆</span> Aevix — Premium Discord Experience</footer>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/ambient.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      try {
+        const s = await API.stats();
+        document.getElementById("s-srv").textContent = App.formatNumber(s.servers||0);
+        document.getElementById("s-usr").textContent = App.formatNumber(s.users||0);
+        document.getElementById("s-cmd").textContent = s.commands||0;
+      } catch {}
+    });
+  </script>
+</body>
+</html>

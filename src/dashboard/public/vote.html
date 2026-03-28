@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vote — Aevix</title>
+  <meta name="theme-color" content="#6C3AED">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav"></nav>
+  <main class="page container" style="max-width:640px">
+    <div class="page-header" style="text-align:center"><h1>Vote for <span style="color:var(--brand)">Aevix</span></h1><p>Support us and unlock premium features for 12 hours</p></div>
+    <div id="vote-content">
+      <div class="card" style="text-align:center;padding:32px" id="vote-card"><div class="spinner" style="margin:0 auto"></div></div>
+      <div class="grid grid-3 mt-24" id="vote-stats"></div>
+      <div class="card mt-24"><div class="card-title mb-16">What You Unlock</div>
+        <div class="card-body">
+          <div class="flex gap-8 mb-16">💎 <span>Music filters — Bass Boost, 8D, Nightcore, Lofi, and more</span></div>
+          <div class="flex gap-8 mb-16">🔊 <span>Advanced queue management</span></div>
+          <div class="flex gap-8 mb-16">⚡ <span>Extended command limits</span></div>
+          <div class="flex gap-8">⭐ <span>Priority support</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer class="footer"><span>◆</span> Aevix</footer>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      await App.init();
+      const card = document.getElementById("vote-card");
+
+      if (App.user) {
+        try {
+          const info = await API.vote.status();
+          if (info.voted) {
+            const exp = new Date(info.expiresAt);
+            card.innerHTML = `<div style="font-size:2rem;margin-bottom:12px">✅</div><div style="font-size:1.1rem;font-weight:600">Thank you for voting!</div><div style="color:var(--text-secondary);margin-top:8px">Rewards expire: <strong>${exp.toLocaleString()}</strong></div><a href="${info.voteUrl}" target="_blank" class="btn btn-secondary mt-16">Vote Again</a>`;
+          } else {
+            card.innerHTML = `<div style="font-size:2rem;margin-bottom:12px">💎</div><div style="font-size:1.1rem;font-weight:600">You haven't voted yet</div><div style="color:var(--text-secondary);margin-top:8px">Vote now to unlock premium features for 12 hours!</div><a href="${info.voteUrl}" target="_blank" class="btn btn-brand btn-lg mt-16">Vote on Top.gg</a>`;
+          }
+        } catch { card.innerHTML = '<div style="color:var(--text-muted)">Could not check vote status</div>'; }
+      } else {
+        card.innerHTML = '<div style="font-size:2rem;margin-bottom:12px">💎</div><div>Login to check your vote status</div><a href="/auth/login" class="btn btn-brand mt-16">Login with Discord</a>';
+      }
+
+      try {
+        const stats = await API.vote.stats();
+        document.getElementById("vote-stats").innerHTML = `
+          <div class="card stat-card"><div class="stat-value">${App.formatNumber(stats.votes||0)}</div><div class="stat-label">Total Votes</div></div>
+          <div class="card stat-card"><div class="stat-value">${App.formatNumber(stats.monthlyVotes||0)}</div><div class="stat-label">This Month</div></div>
+          <div class="card stat-card"><div class="stat-value">${App.formatNumber(stats.serverCount||0)}</div><div class="stat-label">Servers</div></div>`;
+      } catch {}
+    });
+  </script>
+</body>
+</html>
